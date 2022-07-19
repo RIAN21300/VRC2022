@@ -245,6 +245,8 @@ bool lift_raised = false; // set when lift is in UP position
 bool lift_toggled = false;
 bool arm_held = false;
 bool arm_hold_toggled = false;
+bool drive_mode = false; // drive mode - false = control each motor independently using joystick, true = control using D-pad and L2/R2
+bool drive_mode_changed = false;
 
 void loop() {
   //if(digitalRead(PIN_SW_BLOCK) == HIGH) Serial.println("high"); else Serial.println("low");
@@ -256,49 +258,66 @@ void loop() {
   ps2x.read_gamepad(false, false); // read new input
   t_ps2_read = millis();
 
-  if(ps2x.Button(PSB_PAD_UP)) {
-    // forward
-    acty_dc = true;
-    Serial.print(F("PSB_PAD_UP forward "));
-    whl_forward(mot_speed);
-  } else if(ps2x.Button(PSB_PAD_DOWN)) {
-    // backward/backward turn left/right
-    acty_dc = true;
-    Serial.print(F("PSB_PAD_DOWN"));
-    if(ps2x.Button(PSB_PAD_LEFT)) {
-      // backward turn left
-      Serial.print(F("+PSB_PAD_LEFT backward turn left "));
-      whl_left_back(mot_speed);
-    } else if(ps2x.Button(PSB_PAD_RIGHT)) {
-      // backward turn right
-      Serial.print(F("+PSB_PAD_RIGHT backward turn right "));
-      whl_right_back(mot_speed);
-    } else {
-      // backward
+  if(drive_mode) {
+    if(ps2x.Button(PSB_PAD_UP)) {
+      // forward
       acty_dc = true;
-      Serial.print(F(" backward "));
-      whl_backward(mot_speed);
+      Serial.print(F("PSB_PAD_UP forward "));
+      whl_forward(mot_speed);
+    } else if(ps2x.Button(PSB_PAD_DOWN)) {
+      // backward/backward turn left/right
+      acty_dc = true;
+      Serial.print(F("PSB_PAD_DOWN"));
+      if(ps2x.Button(PSB_PAD_LEFT)) {
+        // backward turn left
+        Serial.print(F("+PSB_PAD_LEFT backward turn left "));
+        whl_left_back(mot_speed);
+      } else if(ps2x.Button(PSB_PAD_RIGHT)) {
+        // backward turn right
+        Serial.print(F("+PSB_PAD_RIGHT backward turn right "));
+        whl_right_back(mot_speed);
+      } else {
+        // backward
+        acty_dc = true;
+        Serial.print(F(" backward "));
+        whl_backward(mot_speed);
+      }
+    } else if(ps2x.Button(PSB_PAD_LEFT)) {
+      // turn left
+      acty_dc = true;
+      Serial.print(F("PSB_PAD_LEFT turn left "));
+      whl_left(mot_speed);
+    } else if(ps2x.Button(PSB_PAD_RIGHT)) {
+      // turn right
+      acty_dc = true;
+      Serial.print(F("PSB_PAD_RIGHT turn right ")); 
+      whl_right(mot_speed);
+    } else if(ps2x.Button(PSB_L2)) {
+      // turn counterclockwise
+      acty_dc = true;
+      Serial.print(F("PSB_L2 turn counterclockwise "));
+      whl_counterclockwise(mot_speed);
+    } else if(ps2x.Button(PSB_R2)) {
+      // turn clockwise
+      acty_dc = true;
+      Serial.print(F("PSB_R2 turn clockwise "));
+      whl_clockwise(mot_speed);
     }
-  } else if(ps2x.Button(PSB_PAD_LEFT)) {
-    // turn left
-    acty_dc = true;
-    Serial.print(F("PSB_PAD_LEFT turn left "));
-    whl_left(mot_speed);
-  } else if(ps2x.Button(PSB_PAD_RIGHT)) {
-    // turn right
-    acty_dc = true;
-    Serial.print(F("PSB_PAD_RIGHT turn right ")); 
-    whl_right(mot_speed);
-  } else if(ps2x.Button(PSB_L2)) {
-    // turn counterclockwise
-    acty_dc = true;
-    Serial.print(F("PSB_L2 turn counterclockwise "));
-    whl_counterclockwise(mot_speed);
-  } else if(ps2x.Button(PSB_R2)) {
-    // turn clockwise
-    acty_dc = true;
-    Serial.print(F("PSB_R2 turn clockwise "));
-    whl_clockwise(mot_speed);
+
+    
+    if(acty_dc) Serial.println(mot_speed, DEC); // show speed in debug log
+    else whl_stop(); // put motors to rest
+  } else {
+    // constantly convert analog readouts to motor speed
+    int left = ps2x.Analog(PSS_LY), right = ps2x.Analog(PSS_RY);
+    Serial.print(F("Joystick readouts: "));
+    Serial.print(left, DEC); Serial.print(','); Serial.print(right, DEC);
+    left = map(left, 0, 255, mot_speed, -mot_speed);
+    right = map(right, 0, 255, mot_speed, -mot_speed);
+    Serial.print(F(" -> "));
+    Serial.print(left, DEC); Serial.print(','); Serial.println(right, DEC);
+    dc_control(DCH_LEFT, left);
+    dc_control(DCH_RIGHT, right);
   }
 
   if(ps2x.Button(PSB_L3)) {
@@ -325,9 +344,6 @@ void loop() {
   } else if(arm_held) servo_control_speed(PCH_ARM, -ARM_SPEED);
   else servo_control_speed(PCH_ARM, 0);
 
-  if(acty_dc) Serial.println(mot_speed, DEC); // show speed in debug log
-  else whl_stop(); // put motors to rest
-
   if(ps2x.Button(PSB_SELECT)) {
     // modifier key
     if(ps2x.Button(PSB_TRIANGLE)) {
@@ -347,6 +363,15 @@ void loop() {
       lift_raised = true; while(lift_up() != 0);
       grip_closed = false; grip_open();
     }
+
+    if(ps2x.Button(PSB_SQUARE)) {
+      if(!drive_mode_changed) {
+        drive_mode_changed = true;
+        drive_mode = !drive_mode;
+        Serial.print(F("PSB_SELECT + PSB_SQUARE change drive mode to "));
+        if(drive_mode) Serial.println(F("D-pad")); else Serial.println(F("joystick"));
+      }
+    } else drive_mode_changed = false;
   } else {
     if(ps2x.Button(PSB_TRIANGLE)) {
       if(!grip_toggled) {
